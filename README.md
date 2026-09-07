@@ -12,7 +12,7 @@ I paste in a prompt and the response I want to check. Claude scores it 1–5 acr
 
 ## Demo
 
-**[Live demo →](#)** *(link added once deployed)*
+Live demo →(https://llm-quality-scorer.streamlit.app)
 
 Example of what it returns:
 
