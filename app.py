@@ -50,15 +50,14 @@ api_key_input = st.sidebar.text_input(
     "Anthropic API key",
     type="password",
     placeholder="sk-ant-...",
-    help=(
-        "Not stored anywhere, and never pre-filled with a server-side key "
-        "even if one is configured for this deployment -- see the caption "
-        "below."
-    ),
+    help="Used for this session only. Not stored, not logged, not sent anywhere but Anthropic's API.",
 )
 st.sidebar.caption(
-    "Leave blank to use this deployment's configured key, if the person "
-    "hosting it set one up server-side."
+    "**Required.** This deployment has no server-side key, so bring your own: "
+    "the app can't call Claude without one. Get a key at "
+    "[console.anthropic.com](https://console.anthropic.com/settings/keys) -- "
+    "new accounts include free credit. Your key is used for this session only "
+    "and is never stored."
 )
 effective_key = api_key_input or os.environ.get("ANTHROPIC_API_KEY")
 
@@ -87,7 +86,10 @@ if run:
     st.session_state["scorer_result"] = None
     st.session_state["scored_inputs"] = (prompt, response)
     if not effective_key:
-        st.session_state["scorer_error"] = "Add your Anthropic API key in the sidebar first."
+        st.session_state["scorer_error"] = (
+            "Add your Anthropic API key in the sidebar to score. This demo "
+            "has no shared key -- the sidebar says where to get one."
+        )
     elif not prompt.strip() or not response.strip():
         st.session_state["scorer_error"] = "Both the prompt and the response are required."
     else:

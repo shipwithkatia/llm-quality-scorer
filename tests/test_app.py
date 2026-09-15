@@ -73,6 +73,10 @@ def test_missing_key_shows_an_error_not_a_crash():
     at.text_area[1].set_value("r")
     at.button[0].click().run()
     assert at.error, "no error shown when the API key is missing"
+    # This deployment has no server-side key, so the message must tell the
+    # visitor to supply one -- not just fail.
+    assert any("API key" in e.value for e in at.error), \
+        "error does not tell the user a key is needed"
     assert not at.exception
 
 
