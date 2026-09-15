@@ -79,39 +79,65 @@ col1, col2 = st.columns([1, 3])
 with col1:
     run = st.button("Score it", type="primary", use_container_width=True)
 
+# Streamlit re-runs the whole script on ANY widget interaction. Without
+# stashing the outcome, a user who edits a field after scoring silently
+# loses their results. Keep it in session_state and render from there.
 if run:
+    st.session_state["scorer_error"] = None
+    st.session_state["scorer_result"] = None
+    st.session_state["scored_inputs"] = (prompt, response)
     if not effective_key:
-        st.error("Add your Anthropic API key in the sidebar first.")
+        st.session_state["scorer_error"] = "Add your Anthropic API key in the sidebar first."
     elif not prompt.strip() or not response.strip():
-        st.error("Both the prompt and the response are required.")
+        st.session_state["scorer_error"] = "Both the prompt and the response are required."
     else:
         with st.spinner("Scoring against the rubric..."):
             try:
-                result = score_output(prompt, response, api_key=effective_key)
+                st.session_state["scorer_result"] = score_output(
+                    prompt, response, api_key=effective_key
+                )
             except ScorerError as e:
-                st.error(str(e))
-                result = None
+                st.session_state["scorer_error"] = str(e)
 
-        if result:
-            st.subheader(f"Overall score: {result.overall} / 5")
-            st.write(result.summary)
+# Streamlit re-runs the whole script on ANY widget interaction, so the outcome
+# is kept in session_state rather than in a local that a rerun would discard.
+# But a kept result is only valid for the text it was computed from: if the
+# fields have changed since, say so rather than letting an old score sit
+# silently next to new text.
+result = st.session_state.get("scorer_result")
+error = st.session_state.get("scorer_error")
+is_stale = st.session_state.get("scored_inputs") not in (None, (prompt, response))
 
-            df = pd.DataFrame(
-                {
-                    "Dimension": [d.replace("_", " ").title() for d in result.scores],
-                    "Score": list(result.scores.values()),
-                }
-            ).set_index("Dimension")
-            st.bar_chart(df, y="Score")
+if error:
+    st.error(error)
 
-            st.subheader("Rationale")
-            for dim, text in result.rationale.items():
-                st.markdown(f"**{dim.replace('_', ' ').title()} ({result.scores[dim]}/5):** {text}")
+if result:
+    if is_stale:
+        st.warning(
+            "The prompt or response has been edited since this score was "
+            "computed. Press **Score it** again to rescore.",
+            icon="\u26a0\ufe0f",
+        )
 
-            if result.flags:
-                st.subheader("Flags")
-                for flag in result.flags:
-                    st.warning(flag)
+    st.subheader(f"Overall score: {result.overall} / 5")
+    st.write(result.summary)
+
+    df = pd.DataFrame(
+        {
+            "Dimension": [d.replace("_", " ").title() for d in result.scores],
+            "Score": list(result.scores.values()),
+        }
+    ).set_index("Dimension")
+    st.bar_chart(df, y="Score")
+
+    st.subheader("Rationale")
+    for dim, text in result.rationale.items():
+        st.markdown(f"**{dim.replace('_', ' ').title()} ({result.scores[dim]}/5):** {text}")
+
+    if result.flags:
+        st.subheader("Flags")
+        for flag in result.flags:
+            st.warning(flag)
 
 st.divider()
 st.caption(

@@ -1,5 +1,7 @@
 # LLM Output Quality Scorer
 
+![The scorer: prompt and response in, rubric scores, per-dimension rationale and flags out](docs/screenshot.png)
+
 I built a tool that scores an LLM's response to a prompt against a five-part rubric, using Claude as the judge, so I could compare outputs without re-reading every response by hand.
 
 ## The Problem
@@ -12,7 +14,7 @@ I paste in a prompt and the response I want to check. Claude scores it 1–5 acr
 
 ## Demo
 
-Live demo →(https://llm-quality-scorer.streamlit.app)
+[Live demo →](https://llm-quality-scorer.streamlit.app)
 
 Example of what it returns:
 

@@ -22,6 +22,8 @@ from typing import Optional
 import anthropic
 
 MODEL = "claude-sonnet-5"
+MAX_OUTPUT_TOKENS = 4096
+EFFORT = "medium"
 
 # Hard cap on input size. This keeps API cost per call predictable, reduces
 # load on the free-tier hosting resource limits, and shrinks the amount of
@@ -169,16 +171,35 @@ def score_output(prompt: str, response: str, api_key: Optional[str] = None) -> S
     try:
         message = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=MAX_OUTPUT_TOKENS,
             system=SYSTEM_PROMPT,
+            output_config={"effort": EFFORT},
             messages=[{"role": "user", "content": user_content}],
         )
     except anthropic.APIError as e:
         raise ScorerError(f"Anthropic API call failed: {e}") from e
+    except TypeError as e:
+        # An SDK too old to know `output_config` raises TypeError, which is not
+        # an APIError -- uncaught, it takes down the whole Streamlit page.
+        raise ScorerError(
+            f"The installed anthropic SDK rejected a request parameter ({e}). "
+            "This project needs anthropic>=1.5.0; run: pip install -U anthropic"
+        ) from e
 
     raw_text = "".join(
         block.text for block in message.content if block.type == "text"
     ).strip()
+
+    # Check stop_reason BEFORE parsing, not just when the text is empty:
+    # truncation can also leave a fragment (e.g. a bare "```json" opener) that
+    # is non-empty here but empty after fence-stripping below.
+    if message.stop_reason == "max_tokens":
+        raise ScorerError(
+            f"Model hit the {MAX_OUTPUT_TOKENS}-token output cap before "
+            "finishing. Raise MAX_OUTPUT_TOKENS or lower EFFORT."
+        )
+    if message.stop_reason == "refusal":
+        raise ScorerError("The model declined to score this input.")
 
     # Models occasionally wrap JSON in markdown fences despite instructions.
     if raw_text.startswith("```"):
@@ -186,6 +207,11 @@ def score_output(prompt: str, response: str, api_key: Optional[str] = None) -> S
         if raw_text.startswith("json"):
             raw_text = raw_text[4:]
         raw_text = raw_text.strip()
+
+    if not raw_text:
+        raise ScorerError(
+            f"Model returned no usable text (stop_reason: {message.stop_reason})."
+        )
 
     try:
         parsed = json.loads(raw_text)

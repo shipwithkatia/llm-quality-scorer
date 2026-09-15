@@ -5,6 +5,7 @@ the repo to verify things work before adding their own key.
 """
 
 import json
+import pytest
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -251,3 +252,100 @@ def test_score_output_coerces_non_string_summary():
         instance.messages.create.return_value = _mock_message(json.dumps(payload))
         result = score_output("prompt", "response", api_key="fake-key-for-test")
         assert isinstance(result.summary, str)
+
+
+# --- Regression tests for the empty-response failure (Sonnet 5 thinking) ---
+
+def _mock_empty_message(stop_reason: str, blocks=None):
+    """A response with NO text block -- what Sonnet 5 returns when thinking
+    consumes the whole max_tokens budget. The existing _mock_message helper
+    cannot express this case, which is why the suite never caught it."""
+    message = MagicMock()
+    message.content = blocks if blocks is not None else []
+    message.stop_reason = stop_reason
+    return message
+
+
+def test_truncated_before_any_text_gives_actionable_error():
+    thinking = MagicMock()
+    thinking.type = "thinking"
+    with patch("scorer.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = _mock_empty_message(
+            "max_tokens", blocks=[thinking]
+        )
+        with pytest.raises(ScorerError) as e:
+            score_output("p", "r", api_key="fake-key-for-test")
+    msg = str(e.value)
+    assert "output cap" in msg
+    assert "Expecting value" not in msg
+
+
+def test_refusal_gives_its_own_error():
+    with patch("scorer.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = _mock_empty_message("refusal")
+        with pytest.raises(ScorerError) as e:
+            score_output("p", "r", api_key="fake-key-for-test")
+    assert "declined" in str(e.value)
+
+
+def test_request_leaves_headroom_for_thinking():
+    """Config-regression guard, NOT a behavioural test: it asserts the request
+    we send, not what the model does. Only a live API call proves the budget
+    is actually sufficient."""
+    with patch("scorer.anthropic.Anthropic") as MockClient:
+        instance = MockClient.return_value
+        instance.messages.create.return_value = _mock_message(json.dumps(FAKE_RESPONSE_JSON))
+        score_output("p", "r", api_key="fake-key-for-test")
+        kwargs = instance.messages.create.call_args.kwargs
+    assert kwargs["max_tokens"] > 1024, "no headroom for thinking tokens"
+    assert kwargs["output_config"]["effort"] in {"low", "medium", "high", "xhigh", "max"}
+
+
+def test_truncated_mid_fence_is_not_reported_as_a_parse_error():
+    """max_tokens can cut the model off right after it writes ```json .
+    That text is non-empty, but empty after fence-stripping -- so an
+    emptiness check alone misses it. stop_reason must be checked first."""
+    block = MagicMock()
+    block.type = "text"
+    block.text = "```json"
+    message = MagicMock()
+    message.content = [block]
+    message.stop_reason = "max_tokens"
+    with patch("scorer.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = message
+        with pytest.raises(ScorerError) as e:
+            score_output("p", "r", api_key="fake-key-for-test")
+    assert "output cap" in str(e.value)
+    assert "Expecting value" not in str(e.value)
+
+
+def test_outdated_sdk_becomes_a_scorer_error_not_a_page_crash():
+    """An SDK too old for output_config raises TypeError, which is NOT an
+    anthropic.APIError. app.py only catches ScorerError, so an uncaught
+    TypeError shows the user a raw traceback instead of a message."""
+    def old_sdk_create(*, model, max_tokens, system, messages):
+        raise AssertionError("unreachable")
+
+    with patch("scorer.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create = old_sdk_create
+        with pytest.raises(ScorerError) as e:
+            score_output("p", "r", api_key="fake-key-for-test")
+    assert "anthropic>=1.5.0" in str(e.value)
+
+
+def test_bare_fence_that_empties_after_stripping_is_not_a_parse_error():
+    """A normally-finished response of just ``` leaves an empty string after
+    fence-stripping. Without a post-strip check the user sees the same
+    misleading JSON error as the truncation bug."""
+    block = MagicMock()
+    block.type = "text"
+    block.text = "```"
+    message = MagicMock()
+    message.content = [block]
+    message.stop_reason = "end_turn"
+    with patch("scorer.anthropic.Anthropic") as MockClient:
+        MockClient.return_value.messages.create.return_value = message
+        with pytest.raises(ScorerError) as e:
+            score_output("p", "r", api_key="fake-key-for-test")
+    assert "no usable text" in str(e.value)
+    assert "Expecting value" not in str(e.value)
