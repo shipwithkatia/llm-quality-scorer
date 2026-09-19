@@ -14,7 +14,7 @@ I paste in a prompt and the response I want to check. Claude scores it 1–5 acr
 
 ## Demo
 
-[Live demo →](https://llm-quality-scorer.streamlit.app)
+[Live demo →](https://llm-quality-scorer.streamlit.app) — hosted on Streamlit's free tier, so it sleeps when idle: click "Yes, get this app back up!" and wait about 30 seconds. Scoring needs your own Anthropic API key.
 
 Example of what it returns:
 
@@ -42,7 +42,7 @@ Output: Overall score: 4.4 / 5 — clear and age-appropriate, one unverified det
 
 ## How It Works
 
-`app.py` (Streamlit) collects a prompt/response pair. `scorer.py` wraps both in tagged delimiters — so the response can't be mistaken for instructions — and sends them to Claude with a system prompt defining the rubric. Before anything reaches the screen, the JSON that comes back is checked: every dimension present, every score numeric and in range. That validation logic has 15 tests covering it, runnable without a real API key (`python -m pytest tests/`). See `SECURITY.md` for the full write-up of API-key handling.
+`app.py` (Streamlit) collects a prompt/response pair. `scorer.py` wraps both in tagged delimiters — so the response can't be mistaken for instructions — and sends them to Claude with a system prompt defining the rubric. Before anything reaches the screen, the JSON that comes back is checked: every dimension present, every score numeric and in range. That validation logic is covered by the tests in `tests/test_scorer.py`, runnable without a real API key (`python -m pytest tests/`). See `SECURITY.md` for the full write-up of API-key handling.
 
 ## Tradeoffs and Decisions
 
